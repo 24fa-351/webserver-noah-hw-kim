@@ -34,6 +34,27 @@ void handleConnection(int *client_fd_ptr)
         {
             done = true;
         }
+
+        char path[1000];
+        char method[1000];
+        char http_version[1000];
+        sscanf(buffer, "%s %s %s", method, path, http_version);
+
+        if (strcmp(method, "GET") == 0) {
+            if (strncmp(path, "/calc/", 6) == 0) {
+                int a, b;
+                sscanf(path, "/calc/%d/%d", &a, &b);
+                dprintf(socket_fd, "HTTP/1.1 200 OK\nContent-Type: text/html\n\n<html><body><h1>%d + %d = %d</h1></body></html>", a, b, a + b);
+            } else if (strncmp(path, "/static/", 8) == 0) {
+                printf("Serving static file\n");
+            } else if (strncmp(path, "/stats/", 7) == 0) {
+                printf("Serving stats\n");
+            } else {
+                dprintf(socket_fd, "HTTP/1.1 404 Not Found\nContent-Type: text/html\n\n<html><body><h1>404 Not Found</h1></body></html>");
+            }
+        } else {
+            dprintf(socket_fd, "HTTP/1.1 404 Not Found\nContent-Type: text/html\n\n<html><body><h1>404 Not Found</h1></body></html>");
+        }
     }
 
     printf("Done with connection %d\n", socket_fd);
