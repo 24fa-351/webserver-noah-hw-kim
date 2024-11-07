@@ -5,9 +5,10 @@
 #include <netinet/in.h>
 #include <unistd.h>
 #include <ctype.h>
+#include <stdbool.h>
 #include <pthread.h>
 
-#define DEFAULT_PORT 46645
+#define DEFAULT_PORT 8080
 #define LISTEN_BACKLOG 5
 #define BUFFER_SIZE 1024
 
@@ -16,19 +17,27 @@ void handleConnection(int *client_fd_ptr)
 {
     int socket_fd = *client_fd_ptr;
     free(client_fd_ptr);
-
+    
     printf("Handling connection on %d\n", socket_fd);
-    char buffer[BUFFER_SIZE];
-    int bytes_read = read(socket_fd, buffer, sizeof(buffer));
-    printf("Received: %s\n", buffer);
-    write(socket_fd, buffer, bytes_read);
 
-    // int res = strncmp("exit", buffer, 4);
-    // printf("res: %d\n", res);
+    bool done = false;
+    
+    while (done == false)
+    {
+        char buffer[BUFFER_SIZE];
+        int bytes_read = read(socket_fd, buffer, sizeof(buffer));
+        printf("Received: %s from connection %d\n", buffer, socket_fd);
+        // write(socket_fd, buffer, bytes_read);
 
-    printf("done with connection %d\n", socket_fd);
+        int res = strncmp("exit", buffer, 4);
+        if (res == 0)
+        {
+            done = true;
+        }
+    }
 
-    // return res;
+    printf("Done with connection %d\n", socket_fd);
+    close(socket_fd);
 }
 
 int main(int argc, char *argv[])
@@ -50,11 +59,22 @@ int main(int argc, char *argv[])
     server_address.sin_addr.s_addr = htonl(INADDR_ANY);
     server_address.sin_port = htons(port);
 
-    int returnVal;
+    int err_code;
     // bind socket to server address
-    returnVal = bind(server_fd, (struct sockaddr *)&server_address, sizeof(server_address));
+    err_code = bind(server_fd, (struct sockaddr *)&server_address, sizeof(server_address));
+    if (err_code < 0)
+    {
+        perror("Bind failed");
+        return 1;
+    }
+
     // listen for connetions
-    returnVal = listen(server_fd, LISTEN_BACKLOG);
+    err_code = listen(server_fd, LISTEN_BACKLOG);
+    if (err_code < 0)
+    {
+        perror("Listen failed");
+        return 1;
+    }
 
     // printf("Server ip is %d\n", server_address.sin_addr.s_addr);
     printf("Server listening on port %d\n", port);
@@ -74,15 +94,9 @@ int main(int argc, char *argv[])
             continue;
         }
 
-        printf("accepted connection on %d\n", *client_fd_buf);
+        printf("Accepted connection on %d\n", *client_fd_buf);
 
-        while (1) {
-            pthread_create(&thread, NULL, (void* (*) (void*)) handleConnection, (void*) client_fd_buf);
-            pthread_detach(thread);
-        }
-
-        // handleConnection(client_fd);
-        // close(*client_fd_buf);
+        pthread_create(&thread, NULL, (void* (*) (void*)) handleConnection, (void*) client_fd_buf);
     }
     close(server_fd);
 
