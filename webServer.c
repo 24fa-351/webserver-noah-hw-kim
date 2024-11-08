@@ -7,10 +7,59 @@
 #include <ctype.h>
 #include <stdbool.h>
 #include <pthread.h>
+// #include "httpMessage.h"
 
 #define DEFAULT_PORT 8080
 #define LISTEN_BACKLOG 5
 #define BUFFER_SIZE 1024
+
+static int number_of_requests = 0;
+static int bytes_received = 0;
+static int bytes_sent = 0;
+
+void handleCalcRequest(int socket_fd, char *path)
+{
+    int a, b;
+    sscanf(path, "/calc/%d/%d", &a, &b);
+
+    char response[] = "HTTP/1.1 200 OK\nContent-Type: text/html\n\n<html><body><h1>%d + %d = %d</h1></body></html>";
+    bytes_received += sizeof(response) - 1;
+
+    dprintf(socket_fd, response, a, b, a + b);
+}
+
+void handleStatsRequest(int socket_fd)
+{
+    char response[] = "HTTP/1.1 200 OK\nContent-Type: text/html\n\n<html><body><h1>Number of request: %d</h1><h1>Total Bytes Received: %d</h1><h1>Total Bytes Sent:%d</h1></body></html>";
+
+    bytes_sent += sizeof(response) - 1;
+
+    dprintf(socket_fd, response, number_of_requests, bytes_received, bytes_sent);
+}
+
+void handleStaticRequest(int socket_fd, char *path)
+{
+    FILE *file = fopen(path + 1, "r");
+    if (file != NULL)
+    {
+        dprintf(socket_fd, "HTTP/1.1 200 OK\nContent-Type: text/html\n\n");
+        char c;
+        while ((c = fgetc(file)) != EOF)
+        {
+            write(socket_fd, &c, 1);
+            bytes_sent++;
+        }
+        fclose(file);
+    } else
+    {
+        dprintf(socket_fd, "HTTP/1.1 404 Not Found\nContent-Type: text/html\n\n<html><body><h1>404 Not Found</h1></body></html>");
+    }
+}
+
+void handleNotFound(int socket_fd)
+{
+    dprintf(socket_fd, "HTTP/1.1 404 Not Found\nContent-Type: text/html\n\n<html><body><h1>404 Not Found</h1></body></html>");
+}
 
 // input pointer is freed by this function
 void handleConnection(int *client_fd_ptr)
@@ -20,42 +69,51 @@ void handleConnection(int *client_fd_ptr)
     
     printf("Handling connection on %d\n", socket_fd);
 
-    bool done = false;
-    
-    while (done == false)
-    {
-        char buffer[BUFFER_SIZE];
-        int bytes_read = read(socket_fd, buffer, sizeof(buffer));
-        printf("Received: %s from connection %d\n", buffer, socket_fd);
-        // write(socket_fd, buffer, bytes_read);
+    char buffer[BUFFER_SIZE];
+    int bytes_read = read(socket_fd, buffer, sizeof(buffer));
 
-        int res = strncmp("exit", buffer, 4);
-        if (res == 0)
-        {
-            done = true;
-        }
+    printf("Received: %s from connection %d\n", buffer, socket_fd);
 
-        char path[1000];
-        char method[1000];
-        char http_version[1000];
-        sscanf(buffer, "%s %s %s", method, path, http_version);
+    bytes_received += bytes_read;
+    number_of_requests += 1;
 
-        if (strcmp(method, "GET") == 0) {
-            if (strncmp(path, "/calc/", 6) == 0) {
-                int a, b;
-                sscanf(path, "/calc/%d/%d", &a, &b);
-                dprintf(socket_fd, "HTTP/1.1 200 OK\nContent-Type: text/html\n\n<html><body><h1>%d + %d = %d</h1></body></html>", a, b, a + b);
-            } else if (strncmp(path, "/static/", 8) == 0) {
-                printf("Serving static file\n");
-            } else if (strncmp(path, "/stats/", 7) == 0) {
-                printf("Serving stats\n");
-            } else {
-                dprintf(socket_fd, "HTTP/1.1 404 Not Found\nContent-Type: text/html\n\n<html><body><h1>404 Not Found</h1></body></html>");
-            }
+    char method[1000];
+    char path[1000];
+    char http_version[1000];
+    sscanf(buffer, "%s %s %s", method, path, http_version);
+
+    if (strncmp(method, "GET", 3) == 0) {
+        if (strncmp(path, "/calc/", 6) == 0) {
+            handleCalcRequest(socket_fd, path);
+        } else if (strncmp(path, "/stats/", 7) == 0) {
+            handleStatsRequest(socket_fd);
+        } else if (strncmp(path, "/static/", 8) == 0) {
+            handleStaticRequest(socket_fd, path);
         } else {
-            dprintf(socket_fd, "HTTP/1.1 404 Not Found\nContent-Type: text/html\n\n<html><body><h1>404 Not Found</h1></body></html>");
+            handleNotFound(socket_fd);
         }
+    } else {
+        handleNotFound(socket_fd);
     }
+
+    // http_client_message_t* http_msg;
+    // http_read_result_t result;
+
+    // read_http_message(socket_fd, &http_msg, &result);
+
+    // if (result == BAD_REQUEST) {
+    //     printf("Bad request\n");
+    //     close(socket_fd);
+    //     return;
+    // } else if (result == CLOSED_CONNECTION) {
+    //     printf("Closed connection\n");
+    //     close(socket_fd);
+    //     return;
+    // }
+
+    // respond_to_http_message(socket_fd, http_msg);
+    // http_client_message_free(http_msg);
+
 
     printf("Done with connection %d\n", socket_fd);
     close(socket_fd);
