@@ -9,8 +9,15 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <unistd.h>
 // #include "httpMessage.h"
+
+/*
+ref:
+https://stackoverflow.com/questions/20508788/do-i-need-content-type-application-octet-stream-for-file-download
+
+*/
 
 static int number_of_requests = 0;
 static int bytes_received = 0;
@@ -88,31 +95,42 @@ void handleStatsRequest(int socket_fd) {
 }
 
 void handleStaticRequest(int socket_fd, char *path) {
-    char response[] =
-        "HTTP/1.1 200 OK\nContent-Type: text/html\n\n<html><body><img src=%s/></body></html>";
+    char full_path[BUFFER_SIZE];
+    snprintf(full_path, sizeof(full_path), ".%s", path);
+    path = full_path;
 
-    bytes_sent += sizeof(response) - 1;
+    struct stat st;
+    if (stat(path, &st) < 0) {
+        perror("stat");
+        dprintf(socket_fd, "HTTP/1.1 404 Not Found\r\n\r\n");
+        return;
+    }
+    int file_size = st.st_size;
+    bytes_sent += file_size;
 
-    dprintf(socket_fd, response, path);
+    int file_fd = open(path, O_RDONLY);
+    if (file_fd < 0) {
+        perror("open");
+        dprintf(socket_fd, "HTTP/1.1 404 Not Found\r\n\r\n");
+        return;
+    }
 
-    // int fd, sz;
-    // char *c = (char *)calloc(BUFFER_SIZE, sizeof(char));
-    // fd = open(path + 1, O_RDONLY);
-    // if (fd < 0) {
-    //     printNotFound(socket_fd);
-    //     perror("open");
-    //     exit(1);
-    // }
+    dprintf(socket_fd,
+            "HTTP/1.1 200 OK\r\n"
+            "Content-Type: image/png\r\n"
+            "Content-Disposition: inline; filename=\"%s\"\r\n"
+            "Content-Length: %d\r\n"
+            "\r\n",
+            path + 1, file_size);
 
-    // sz = read(fd, c, BUFFER_SIZE);
-    // if (sz < 0) {
-    //     perror("read");
-    //     exit(1);
-    // }
+    char buffer[BUFFER_SIZE];
 
-    // dprintf(socket_fd, "HTTP/1.1 200 OK\nContent-Type: text/html\n\n%s", c);
+    ssize_t bytes_read;
+    while ((bytes_read = read(file_fd, buffer, sizeof(buffer))) > 0) {
+        write(socket_fd, buffer, bytes_read);
+    }
 
-    // free(c);
+    close(file_fd);
 }
 
 // input pointer is freed by this function
@@ -153,24 +171,6 @@ void handleConnection(int *client_fd_ptr) {
 
         handleHttpMessage(socket_fd, buffer);
     }
-
-    // http_client_message_t* http_msg;
-    // http_read_result_t result;
-
-    // read_http_message(socket_fd, &http_msg, &result);
-
-    // if (result == BAD_REQUEST) {
-    //     printf("Bad request\n");
-    //     close(socket_fd);
-    //     return;
-    // } else if (result == CLOSED_CONNECTION) {
-    //     printf("Closed connection\n");
-    //     close(socket_fd);
-    //     return;
-    // }
-
-    // respond_to_http_message(socket_fd, http_msg);
-    // http_client_message_free(http_msg);
 
     printf("Done with connection %d\n", socket_fd);
     close(socket_fd);
